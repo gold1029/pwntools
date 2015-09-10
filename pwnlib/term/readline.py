@@ -1,6 +1,8 @@
-from . import term, text
-from . import keymap as km
 from . import keyconsts as kc
+from . import keymap as km
+from . import term
+from . import text
+
 cursor = text.reverse
 
 buffer_left, buffer_right = u'', u''
@@ -48,7 +50,7 @@ def fmt_suggestions(suggestions):
                     s += fmt % suggestions[l]
             s += '\n'
     else:
-        s = '\n'
+        s = '(no completions)\n'
     return s
 
 def auto_complete(*_):

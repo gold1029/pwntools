@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
-from .buffer import Buffer
+import logging
+import re
+import string
+import subprocess
+import sys
+import threading
+import time
+
+from .. import atexit
+from .. import context
+from .. import term
+from ..log import getLogger
+from ..log import getPerformanceLogger
 from ..timeout import Timeout
-from .. import term, atexit, context
-from ..util import misc, fiddling, packing
-from ..log import getLogger, getPerformanceLogger
-import re, threading, sys, time, subprocess, logging, string
+from ..util import fiddling
+from ..util import misc
+from ..util import packing
+from .buffer import Buffer
 
 log = getLogger(__name__)
 dumplog = getPerformanceLogger(__name__ + '.dump')
@@ -113,7 +125,9 @@ class tube(Timeout):
         if data and dumplog.isEnabledFor(logging.DEBUG):
             dumplog.debug('Received %#x bytes:' % len(data))
 
-            if all(c in string.printable for c in data):
+            if len(set(data)) == 1:
+                dumplog.indented('%r * %#x' % (data[0], len(data)))
+            elif all(c in string.printable for c in data):
                 for line in data.splitlines(True):
                     dumplog.indented(repr(line), level = logging.DEBUG)
             else:
@@ -691,7 +705,9 @@ class tube(Timeout):
 
         if dumplog.isEnabledFor(logging.DEBUG):
             log.debug('Sent %#x bytes:' % len(data))
-            if all(c in string.printable for c in data):
+            if len(set(data)) == 1:
+                dumplog.indented('%r * %#x' % (data[0], len(data)))
+            elif all(c in string.printable for c in data):
                 for line in data.splitlines(True):
                     log.indented(repr(line), level = logging.DEBUG)
             else:
@@ -852,20 +868,14 @@ class tube(Timeout):
             >>> t.fileno        = lambda: 1234
             >>> with context.local(log_level='info'):
             ...     data = t.clean_and_log() #doctest: +ELLIPSIS
+            [DEBUG] Received 0xb bytes:
                 'hooray_data'
             >>> data
             'hooray_data'
             >>> context.clear()
         """
-        data = self.clean(timeout)
-
-        if all(c in string.printable for c in data):
-            for line in data.splitlines(True):
-                log.indented(repr(line))
-        else:
-            log.indented(fiddling.hexdump(data))
-
-        return data
+        with context.context.local(log_level='debug'):
+            return self.clean(timeout)
 
     def connect_input(self, other):
         """connect_input(other)

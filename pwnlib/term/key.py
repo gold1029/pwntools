@@ -1,8 +1,13 @@
 __all__ = ['getch', 'getraw', 'get', 'unget']
 
-import select, sys, string, os, errno
-from . import termcap
+import errno
+import os
+import select
+import string
+import sys
+
 from . import keyconsts as kc
+from . import termcap
 
 try:    _fd = sys.stdin.fileno()
 except: _fd = file('/dev/null', 'r').fileno()
@@ -83,6 +88,9 @@ class Matcher:
             return self.__call__(other)
         else:
             return False
+
+    def __neq__(self, other):
+        return not self == other
 
     def __hash__(self):
         return self._hash
@@ -412,7 +420,7 @@ def _peek_simple():
                 k = Key(kc.TYPE_KEYSYM, kc.KEY_BACKSPACE)
             elif c0 == 9:
                 k = Key(kc.TYPE_KEYSYM, kc.KEY_TAB)
-            elif c0 == 13:
+            elif c0 in (10, 13):
                 k = Key(kc.TYPE_KEYSYM, kc.KEY_ENTER)
             else:
                 k = Key(kc.TYPE_UNICODE)

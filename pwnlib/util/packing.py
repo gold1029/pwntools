@@ -30,9 +30,11 @@ Examples:
     >>> with context.local(endian='big'): print repr(p(0x1ff))
     '\xff\x01'
 """
+import struct
+import sys
+
+from . import iters
 from ..context import context
-import struct, sys
-from itertools import product
 
 mod = sys.modules[__name__]
 
@@ -81,11 +83,14 @@ def pack(number, word_size = None, endianness = None, sign = None, **kwargs):
         >>> pack(0x0102030405, 'all', 'little', True)
         '\\x05\\x04\\x03\\x02\\x01'
 """
-    kwargs.setdefault('endianness', endianness)
-    kwargs.setdefault('sign', sign)
+    if sign is None and number < 0:
+        sign = True
 
     if word_size != 'all':
         kwargs.setdefault('word_size', word_size)
+
+    kwargs.setdefault('endianness', endianness)
+    kwargs.setdefault('sign', sign)
 
     with context.local(**kwargs):
         # Lookup in context if not found
@@ -198,24 +203,19 @@ def unpack(data, word_size = None, endianness = None, sign = None, **kwargs):
         number = 0
 
         if endianness == "little":
-            for c in reversed(data):
-                number = (number << 8) + ord(c)
-        elif endianness == "big":
-            for c in data:
-                number = (number << 8) + ord(c)
-        else:
-            raise ValueError("endianness must be either 'little' or 'big'")
+            data = reversed(data)
+        data = bytearray(data)
+
+        for c in data:
+            number = (number << 8) + c
 
         number = number & ((1 << word_size) - 1)
 
-        if sign == False:
+        if not sign:
             return number
-        elif sign == True:
-            signbit = number & (1 << (word_size-1))
-            return number - 2*signbit
-        else:
-            raise ValueError("unpack(): sign must be either True or False")
 
+        signbit = number & (1 << (word_size-1))
+        return number - 2*signbit
 
 def unpack_many(data, word_size = None, endianness = None, sign = None, **kwargs):
     """unpack(data, word_size = None, endianness = None, sign = None) -> int list
@@ -288,7 +288,7 @@ def make_single(op,size,end,sign):
 
     return name, routine
 
-for op,size,end,sign in product(ops, sizes, ends, signs):
+for op,size,end,sign in iters.product(ops, sizes, ends, signs):
     name, routine = make_single(op,size,end,sign)
     setattr(mod, name, routine)
 
@@ -340,7 +340,7 @@ def make_multi(op, size):
     return name, routine
 
 
-for op,size in product(ops, sizes):
+for op,size in iters.product(ops, sizes):
     name, routine = make_multi(op,size)
     setattr(mod, name, routine)
 
@@ -531,3 +531,106 @@ def flat(*args, **kwargs):
         raise TypeError("flat() does not support argument %r" % kwargs.popitem()[0])
 
     return _flat(args, preprocessor, make_packer(word_size, endianness, sign))
+
+def fit(pieces, **kwargs):
+    """fit(pieces, filler = de_bruijn(), length = None, preprocessor = None, word_size = None, endianness = None, sign = None) -> str
+
+    Generates a string from a dictionary mapping offsets to data to place at
+    that offset.
+
+    For each key-value pair in `pieces`, the key is either an offset or a byte
+    sequence.  In the latter case, the offset will be the lowest index at which
+    the sequence occurs in `filler`.  See examples below.
+
+    Each piece of data is passed to :meth:`flat` along with the keyword
+    arguments `word_size`, `endianness` and `sign`.
+
+    Space between pieces of data is filled out using the iterable `filler`.  The
+    `n`'th byte in the output will be byte at index ``n % len(iterable)`` byte
+    in `filler` if it has finite length or the byte at index `n` otherwise.
+
+    If `length` is given, the output will padded with bytes from `filler` to be
+    this size.  If the output is longer than `length`, a :exception:`ValueError`
+    exception is raised.
+
+    If entries in `pieces` overlap, a :exception:`ValueError` exception is
+    raised.
+
+    Arguments:
+      pieces: Offsets and values to output.
+      length: The length of the output.
+      filler: Iterable to use for padding.
+      preprocessor (function): Gets called on every element to optionally
+         transform the element before flattening. If :const:`None` is
+         returned, then the original value is used.
+      word_size (int): Word size of the converted integer.
+      endianness (str): Endianness of the converted integer ("little"/"big").
+      sign (str): Signedness of the converted integer (False/True)
+
+    Examples:
+      >>> fit({12: 0x41414141,
+      ...      24: 'Hello',
+      ...     })
+      'aaaabaaacaaaAAAAdaaaeaaaHello'
+      >>> fit({'caaa': ''})
+      'aaaabaaa'
+      >>> fit({12: 'XXXX'}, filler = 'AB', length = 20)
+      'ABABABABABABXXXXABAB'
+      >>> fit({ 8: [0x41414141, 0x42424242],
+      ...      20: 'CCCC'})
+      'aaaabaaaAAAABBBBcaaaCCCC'
+
+    """
+    # HACK: To avoid circular imports we need to delay the import of `cyclic`
+    from . import cyclic
+
+    filler       = kwargs.pop('filler', cyclic.de_bruijn())
+    length       = kwargs.pop('length', None)
+    preprocessor = kwargs.pop('preprocessor', lambda x: None)
+    word_size    = kwargs.pop('word_size', None)
+    endianness   = kwargs.pop('endianness', None)
+    sign         = kwargs.pop('sign', None)
+
+    if kwargs != {}:
+        raise TypeError("fit() does not support argument %r" % kwargs.popitem()[0])
+
+    packer = make_packer(word_size, endianness, sign)
+    filler = iters.cycle(filler)
+    out = ''
+
+    # convert str keys to offsets
+    pieces_ = dict()
+    for k, v in pieces.items():
+        if isinstance(k, (int, long)):
+            pass
+        elif isinstance(k, str):
+            while k not in out:
+                out += filler.next()
+            k = out.index(k)
+        else:
+            raise TypeError("fit(): offset must be of type int or str, but got '%s'" % type(k))
+        pieces_[k] = v
+    pieces = pieces_
+
+    # insert data into output
+    out = list(out)
+    l = 0
+    for k, v in sorted(pieces.items()):
+        if k < l:
+            raise ValueError("fit(): data at offset %d overlaps with previous data which ends at offset %d" % (k, l))
+        while len(out) < k:
+            out.append(filler.next())
+        v = _flat([v], preprocessor, packer)
+        l = k + len(v)
+        out[k:l] = v
+
+    # truncate/pad output
+    if length:
+        if l > length:
+            raise ValueError("fit(): Pieces does not fit within `length` (= %d) bytes" % length)
+        while len(out) < length:
+            out.append(filler.next())
+    else:
+        out = out[:l]
+
+    return ''.join(out)

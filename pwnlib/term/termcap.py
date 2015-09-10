@@ -1,5 +1,6 @@
 __all__ = ['get']
-import os, curses
+import curses
+import os
 
 cache = None
 def get(cap, *args, **kwargs):
@@ -36,6 +37,10 @@ def init():
     global cache
 
     if 'PWNLIB_NOTERM' not in os.environ:
-        curses.setupterm()
+        # Fix for BPython
+        try:
+            curses.setupterm()
+        except:
+            pass
 
     cache = {}

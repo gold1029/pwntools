@@ -34,10 +34,10 @@ Example:
    value_..._after:
    >>> with context.local(os = 'linux'):
    ...     print shellcraft.thumb.mov('r1', 'SYS_execve').rstrip()
-       mov r1, #11
+       mov r1, #SYS_execve
    >>> with context.local(os = 'freebsd'):
    ...     print shellcraft.thumb.mov('r1', 'SYS_execve').rstrip()
-       mov r1, #59
+       mov r1, #SYS_execve
    >>> with context.local(os = 'linux'):
    ...     print shellcraft.thumb.mov('r1', 'PROT_READ | PROT_WRITE | PROT_EXEC').rstrip()
        mov r1, #7
@@ -69,7 +69,12 @@ if isinstance(src, (str, unicode)):
     srcs = srcu - 2 * (srcu & 0x80000000)
   %>\
   %if srcu == 0:
-    eor ${dst}, ${dst}
+    %if dst == 'r0':
+        movs r0, 1
+        subs r0, 1
+    %else:
+        eor ${dst}, ${dst}
+    %endif
   %elif srcu < 256:
     mov ${dst}, #${src}
   %elif -256 < srcs < 0:

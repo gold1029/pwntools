@@ -4,8 +4,13 @@
 Implements context management so that nested/scoped contexts and threaded
 contexts work properly and as expected.
 """
-import threading, collections, string, logging
+import collections
+import logging
+import string
+import threading
+
 from ..timeout import Timeout
+
 
 class _defaultdict(dict):
     """
@@ -309,6 +314,7 @@ class ContextType(object):
         'os': 'linux',
         'signed': False,
         'timeout': Timeout.maximum,
+        'terminal': None,
     }
 
     #: Valid values for :meth:`pwnlib.context.ContextType.os`
@@ -809,6 +815,17 @@ class ContextType(object):
         valid values.
         """
         return Timeout(value).timeout
+
+    @_validator
+    def terminal(self, value):
+        """
+        Default terminal used by :meth:`pwnlib.util.misc.run_in_new_terminal`.
+        Can be a string or an iterable of strings.  In the latter case the first
+        entry is the terminal and the rest are default arguments.
+        """
+        if isinstance(value, (str, unicode)):
+            return [value]
+        return value
 
     #*************************************************************************
     #                               ALIASES
